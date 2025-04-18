@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Spelling Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f9f9f9;
+        }
+        #timer {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-size: 1.2em;
+        }
+        .input-container {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        input {
+            font-size: 1.5em;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+        }
+        .next-button {
+            font-size: 1.8em;
+            cursor: pointer;
+            margin-left: 10px;
+            background: none;
+            border: none;
+        }
+        .feedback {
+            font-size: 1.2em;
+            margin-top: 10px;
+            min-height: 20px;
+        }
+        .speaker {
+            font-size: 2em;
+            cursor: pointer;
+            margin: 20px;
+        }
+        .score {
+            font-size: 1.5em;
+            margin-top: 20px;
+        }
+        .current-word {
+            font-size: 1.2em;
+            color: #666;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="timer">🕒 00:00:00</div>
+    <div class="speaker" onclick="speakWord()">🔊</div>
+    <div class="current-word">Click the speaker to hear the word</div>
+    <div class="input-container">
+        <input type="text" placeholder="Type the word here" autofocus>
+        <button class="next-button" onclick="checkAndNextWord()">➡️</button>
+    </div>
+    <div class="feedback"></div>
+    <div class="score"></div>
+
+    <script>
+        const words = ['photo', 'vegetation', 'humid', 'shady', 'stress', 
+                      'canyon', 'temperature', 'mechanism', 'regular', 'filter'];
+        let currentIndex = 0;
+        let score = 0;
+        let startTime = Date.now();
+        let synth = window.speechSynthesis;
+        let wordSpoken = false;
+
+        const inputField = document.querySelector('input');
+        const feedback = document.querySelector('.feedback');
+        const scoreDisplay = document.querySelector('.score');
+        const timerDisplay = document.getElementById('timer');
+        const currentWordDisplay = document.querySelector('.current-word');
+
+        // 发音函数 - 设置为英式发音
+        let isSpeaking = false;
+        function speakWord() {
+            if (isSpeaking) {
+                synth.cancel();
+                isSpeaking = false;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(words[currentIndex]);
+            
+            // 设置英式发音 - 选择英国声音
+            let voices = synth.getVoices();
+            let englishVoice = voices.find(voice => 
+                voice.lang.includes('en-GB') && !voice.name.includes('Female'));
+            
+            if (englishVoice) {
+                utterance.voice = englishVoice;
+            } else {
+                // 如果没有找到英国声音，则尝试任何英语声音
+                englishVoice = voices.find(voice => voice.lang.includes('en'));
+                if (englishVoice) {
+                    utterance.voice = englishVoice;
+                }
+            }
+            
+            utterance.onstart = () => {
+                isSpeaking = true;
+                wordSpoken = true;
+            };
+            utterance.onend = () => isSpeaking = false;
+            
+            utterance.onerror = (err) => {
+                console.error('发音失败:', err);
+                isSpeaking = false;
+            };
+
+            synth.speak(utterance);
+        }
+
+        // 切换到下一个单词
+        function nextWord() {
+            currentIndex++;
+            wordSpoken = false;
+            
+            if (currentIndex < words.length) {
+                inputField.value = ''; // 清空输入框
+                feedback.textContent = ''; // 清空反馈
+                currentWordDisplay.textContent = 'Click the speaker to hear the word';
+            } else {
+                endGame();
+            }
+        }
+
+        // 检查输入并显示反馈
+        function checkWord() {
+            const userInput = inputField.value.trim().toLowerCase();
+            if (userInput === words[currentIndex]) {
+                feedback.textContent = '✅ Correct!';
+                feedback.style.color = 'green';
+                score += 10;
+                scoreDisplay.textContent = `Score: ${score} / ${words.length * 10}`;
+            } else {
+                feedback.textContent = `❌ Incorrect! The correct word is "${words[currentIndex]}"`;
+                feedback.style.color = 'red';
+            }
+        }
+
+        // 检查答案并前进到下一个单词
+        function checkAndNextWord() {
+            checkWord();
+            setTimeout(nextWord, 1500);
+        }
+
+        // 更新计时器显示
+        function updateTimer() {
+            const elapsed = Date.now() - startTime;
+            const hours = Math.floor(elapsed / 3600000).toString().padStart(2, '0');
+            const minutes = Math.floor((elapsed % 3600000) / 60000).toString().padStart(2, '0');
+            const seconds = Math.floor((elapsed % 60000) / 1000).toString().padStart(2, '0');
+            timerDisplay.textContent = `🕒 ${hours}:${minutes}:${seconds}`;
+        }
+
+        // 结束游戏并显示分数
+        function endGame() {
+            inputField.disabled = true;
+            feedback.textContent = 'Game Over!';
+            feedback.style.color = 'blue';
+            scoreDisplay.textContent = `Your final score is: ${score} / ${words.length * 10}`;
+            document.querySelector('.next-button').disabled = true;
+        }
+
+        // 监听键盘事件 - 按回车键提交答案
+        inputField.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                checkAndNextWord();
+            }
+        });
+
+        // 确保语音API已加载
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = speakWord;
+        }
+
+        // 初始化计时器
+        setInterval(updateTimer, 1000);
+    </script>
+</body>
+</html>
