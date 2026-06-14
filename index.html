@@ -58,6 +58,12 @@
             color: #666;
             margin: 5px 0;
         }
+        .voice-status {
+            font-size: 0.9em;
+            color: #999;
+            margin-top: 10px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -70,9 +76,10 @@
     </div>
     <div class="feedback"></div>
     <div class="score"></div>
+    <div class="voice-status" id="voiceStatus">Loading voices...</div>
 
     <script>
-        const words = ['photo', 'vegetation', 'humid', 'shady', 'stress', 
+        const words = ['photo', 'vegetation', 'humid', 'shady', 'stress',
                       'canyon', 'temperature', 'mechanism', 'regular', 'filter'];
         let currentIndex = 0;
         let score = 0;
@@ -85,41 +92,149 @@
         const scoreDisplay = document.querySelector('.score');
         const timerDisplay = document.getElementById('timer');
         const currentWordDisplay = document.querySelector('.current-word');
+        const voiceStatus = document.getElementById('voiceStatus');
+
+        // 语音选择配置 - 优先级从高到低
+        const VOICE_PRIORITIES = {
+            // Google 的高质量英式发音（推荐）
+            'Google UK English Male': 10,
+            'Google UK English Female': 9,
+
+            // Microsoft 的高质量英式发音
+            'Microsoft Hazel Desktop': 8,
+            'Microsoft Susan Desktop': 7,
+            'Microsoft George Desktop': 7,
+
+            // Apple 的英式发音
+            'Daniel': 6,
+            'Moira': 5,
+
+            // 其他高质量的英式发音
+            'Google UK English': 4,
+            'British': 3,
+            'UK': 3,
+            'England': 3,
+        };
+
+        // 缓存选定的语音，确保一致性
+        let selectedVoice = null;
+        let voicesLoaded = false;
+
+        // 获取最佳英式语音
+        function getBestBritishVoice(voices) {
+            if (!voices || voices.length === 0) {
+                console.warn('No voices available');
+                return null;
+            }
+
+            // 首先尝试按优先级匹配特定的高质量英式语音
+            let bestVoice = null;
+            let highestPriority = 0;
+
+            for (let voice of voices) {
+                // 检查是否是英式英语
+                if (!voice.lang.includes('en-GB')) {
+                    continue;
+                }
+
+                // 检查是否在优先级列表中
+                for (let [voiceName, priority] of Object.entries(VOICE_PRIORITIES)) {
+                    if (voice.name.includes(voiceName) && priority > highestPriority) {
+                        bestVoice = voice;
+                        highestPriority = priority;
+                        break;
+                    }
+                }
+            }
+
+            // 如果找到优先级匹配的语音，返回它
+            if (bestVoice) {
+                return bestVoice;
+            }
+
+            // 如果没有找到优先级匹配的，查找任何英式语音
+            const britishVoice = voices.find(voice =>
+                voice.lang === 'en-GB' || voice.lang.startsWith('en-GB')
+            );
+
+            if (britishVoice) {
+                return britishVoice;
+            }
+
+            // 最后的备选方案：使用任何英语语音（美式等）
+            console.warn('No British English voice found, using fallback');
+            return voices.find(voice =>
+                voice.lang.startsWith('en')
+            );
+        }
+
+        // 初始化语音系统
+        function initializeVoices() {
+            const voices = synth.getVoices();
+
+            if (voices.length > 0) {
+                selectedVoice = getBestBritishVoice(voices);
+                voicesLoaded = true;
+
+                if (selectedVoice) {
+                    voiceStatus.textContent = `Voice: ${selectedVoice.name} (${selectedVoice.lang})`;
+                    console.log('Selected voice:', selectedVoice.name, '-', selectedVoice.lang);
+                } else {
+                    voiceStatus.textContent = 'No suitable voice found';
+                }
+            } else {
+                voiceStatus.textContent = 'Loading voices...';
+            }
+        }
 
         // 发音函数 - 设置为英式发音
         let isSpeaking = false;
         function speakWord() {
+            // 确保语音已加载
+            if (!voicesLoaded) {
+                initializeVoices();
+            }
+
             if (isSpeaking) {
                 synth.cancel();
                 isSpeaking = false;
             }
 
             const utterance = new SpeechSynthesisUtterance(words[currentIndex]);
-            
-            // 设置英式发音 - 选择英国声音
-            let voices = synth.getVoices();
-            let englishVoice = voices.find(voice => 
-                voice.lang.includes('en-GB') && !voice.name.includes('Female'));
-            
-            if (englishVoice) {
-                utterance.voice = englishVoice;
-            } else {
-                // 如果没有找到英国声音，则尝试任何英语声音
-                englishVoice = voices.find(voice => voice.lang.includes('en'));
-                if (englishVoice) {
-                    utterance.voice = englishVoice;
-                }
+
+            // 设置英式发音
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
             }
-            
+
+            // 设置语音参数，使其更自然
+            utterance.lang = 'en-GB';  // 强制使用英式英语
+            utterance.rate = 0.95;     // 语速稍慢一点，更清晰
+            utterance.pitch = 1.0;     // 正常音调
+            utterance.volume = 1.0;    // 最大音量
+
+            // 更自然的语音设置
+            // 这些参数可以让声音听起来更自然，不那么机械
             utterance.onstart = () => {
                 isSpeaking = true;
                 wordSpoken = true;
             };
-            utterance.onend = () => isSpeaking = false;
-            
-            utterance.onerror = (err) => {
-                console.error('发音失败:', err);
+
+            utterance.onend = () => {
                 isSpeaking = false;
+            };
+
+            utterance.onerror = (err) => {
+                console.error('Speech synthesis error:', err);
+                isSpeaking = false;
+
+                // 如果出错，尝试重新初始化语音
+                if (err.error === 'not-allowed') {
+                    voiceStatus.textContent = 'Microphone access required for speech';
+                } else {
+                    voiceStatus.textContent = 'Speech error - click speaker to retry';
+                    voicesLoaded = false;
+                }
             };
 
             synth.speak(utterance);
@@ -129,7 +244,7 @@
         function nextWord() {
             currentIndex++;
             wordSpoken = false;
-            
+
             if (currentIndex < words.length) {
                 inputField.value = ''; // 清空输入框
                 feedback.textContent = ''; // 清空反馈
@@ -174,7 +289,7 @@
             feedback.textContent = 'Game Over!';
             feedback.style.color = 'blue';
             scoreDisplay.textContent = `Your final score is: ${score} / ${words.length * 10}`;
-            document.querySelector('.next-button').disabled = true;
+            document.querySelector('.next-button')?.disabled = true;
         }
 
         // 监听键盘事件 - 按回车键提交答案
@@ -185,9 +300,32 @@
             }
         });
 
-        // 确保语音API已加载
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = speakWord;
+        // 初始化语音系统
+        // 不同浏览器加载语音的时机不同，需要处理多种情况
+        function initVoiceSystem() {
+            // Chrome 需要等待 onvoiceschanged 事件
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = () => {
+                    initializeVoices();
+                };
+            }
+
+            // Safari 和其他浏览器可能已经加载完成
+            initializeVoices();
+
+            // 延迟再次检查，确保语音列表已加载
+            setTimeout(() => {
+                if (!voicesLoaded) {
+                    initializeVoices();
+                }
+            }, 500);
+        }
+
+        // 页面加载完成后初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initVoiceSystem);
+        } else {
+            initVoiceSystem();
         }
 
         // 初始化计时器
