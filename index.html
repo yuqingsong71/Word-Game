@@ -49,6 +49,7 @@
             cursor: pointer;
             margin: 20px;
             transition: transform 0.2s;
+            user-select: none;
         }
         .speaker:hover {
             transform: scale(1.1);
@@ -88,66 +89,63 @@
 </head>
 <body>
     <div id="timer">🕒 00:00:00</div>
-    <div class="speaker" onclick="speakWord()" title="Click to hear the word">🔊</div>
+    <div class="speaker" id="speakerBtn" title="Click to hear the word">🔊</div>
     <div class="current-word">Click the speaker to hear the word</div>
     <div class="input-container">
-        <input type="text" placeholder="Type the word here" autofocus>
-        <button class="next-button" onclick="checkAndNextWord()" title="Submit and next word">➡️</button>
+        <input type="text" id="wordInput" placeholder="Type the word here" autofocus>
+        <button class="next-button" id="nextBtn" title="Submit and next word">➡️</button>
     </div>
-    <div class="feedback"></div>
-    <div class="score"></div>
+    <div class="feedback" id="feedback"></div>
+    <div class="score" id="scoreDisplay"></div>
     <div class="voice-status" id="voiceStatus">Initializing speech...</div>
-    <div class="refresh-voices" onclick="refreshVoices()" id="refreshBtn" style="display: none;">Refresh voices</div>
+    <div class="refresh-voices" id="refreshBtn" style="display: none;">Refresh voices</div>
 
     <script>
+        // Word list
         const words = ['photo', 'vegetation', 'humid', 'shady', 'stress',
                       'canyon', 'temperature', 'mechanism', 'regular', 'filter'];
+
+        // Game state
         let currentIndex = 0;
         let score = 0;
         let startTime = Date.now();
-        let synth = window.speechSynthesis;
         let wordSpoken = false;
+        let isSpeaking = false;
+        let voicesLoaded = false;
+        let voiceLoadAttempts = 0;
+        let selectedVoice = null;
 
-        const inputField = document.querySelector('input');
-        const feedback = document.querySelector('.feedback');
-        const scoreDisplay = document.querySelector('.score');
+        const MAX_VOICE_LOAD_ATTEMPTS = 10;
+
+        // DOM elements
+        const synth = window.speechSynthesis;
+        const inputField = document.getElementById('wordInput');
+        const feedback = document.getElementById('feedback');
+        const scoreDisplay = document.getElementById('scoreDisplay');
         const timerDisplay = document.getElementById('timer');
         const currentWordDisplay = document.querySelector('.current-word');
         const voiceStatus = document.getElementById('voiceStatus');
+        const speakerBtn = document.getElementById('speakerBtn');
+        const nextBtn = document.getElementById('nextBtn');
         const refreshBtn = document.getElementById('refreshBtn');
 
-        // 语音选择配置 - 优先级从高到低
+        // Voice priorities
         const VOICE_PRIORITIES = {
-            // Google 的高质量英式发音（推荐）
             'Google UK English Male': 10,
             'Google UK English Female': 9,
-
-            // Microsoft 的高质量英式发音
             'Microsoft Hazel Desktop': 8,
             'Microsoft Susan Desktop': 7,
             'Microsoft George Desktop': 7,
-
-            // Apple 的英式发音
             'Daniel': 6,
             'Moira': 5,
-
-            // 其他高质量的英式发音
             'Google UK English': 4,
             'British': 3,
             'UK': 3,
             'England': 3,
-
-            // 任何英式发音
             'en-GB': 2,
         };
 
-        // 缓存选定的语音，确保一致性
-        let selectedVoice = null;
-        let voicesLoaded = false;
-        let voiceLoadAttempts = 0;
-        const MAX_VOICE_LOAD_ATTEMPTS = 10;
-
-        // 获取最佳英式语音
+        // Get best British voice
         function getBestBritishVoice(voices) {
             if (!voices || voices.length === 0) {
                 return null;
@@ -155,19 +153,16 @@
 
             console.log('Available voices:', voices.map(v => `${v.name} (${v.lang})`).join(', '));
 
-            // 首先尝试按优先级匹配特定的高质量英式语音
             let bestVoice = null;
             let highestPriority = 0;
 
             for (let voice of voices) {
-                // 检查是否是英式英语
                 const isBritish = voice.lang === 'en-GB' || voice.lang.startsWith('en-GB');
 
                 if (!isBritish) {
                     continue;
                 }
 
-                // 检查是否在优先级列表中
                 for (let [voiceName, priority] of Object.entries(VOICE_PRIORITIES)) {
                     if (voice.name.includes(voiceName) && priority > highestPriority) {
                         bestVoice = voice;
@@ -178,12 +173,10 @@
                 }
             }
 
-            // 如果找到优先级匹配的语音，返回它
             if (bestVoice) {
                 return bestVoice;
             }
 
-            // 如果没有找到优先级匹配的，查找任何英式语音
             const britishVoice = voices.find(voice =>
                 voice.lang === 'en-GB' || voice.lang.startsWith('en-GB')
             );
@@ -193,12 +186,11 @@
                 return britishVoice;
             }
 
-            // 最后的备选方案：使用任何英语语音（美式等）
-            console.warn('No British English voice found, using fallback to any English voice');
+            console.warn('No British English voice found, using fallback');
             return voices.find(voice => voice.lang.startsWith('en'));
         }
 
-        // 初始化语音系统
+        // Initialize voices
         function initializeVoices() {
             const voices = synth.getVoices();
             console.log(`Voice load attempt ${voiceLoadAttempts + 1}: Found ${voices.length} voices`);
@@ -211,14 +203,13 @@
                     voiceStatus.innerHTML = `🔊 Voice: <strong>${selectedVoice.name}</strong> (${selectedVoice.lang})`;
                     console.log('Selected voice:', selectedVoice.name, '-', selectedVoice.lang);
                 } else {
-                    voiceStatus.textContent = '⚠️ No English voice found. Click speaker anyway.';
+                    voiceStatus.textContent = '⚠️ No English voice found';
                 }
 
                 refreshBtn.style.display = 'none';
             } else if (voiceLoadAttempts < MAX_VOICE_LOAD_ATTEMPTS) {
                 voiceStatus.textContent = `Loading voices... (${voiceLoadAttempts + 1}/${MAX_VOICE_LOAD_ATTEMPTS})`;
                 voiceLoadAttempts++;
-                // 延迟重试
                 setTimeout(initializeVoices, 500);
             } else {
                 voiceStatus.textContent = '⚠️ Speech synthesis not available';
@@ -226,17 +217,14 @@
             }
         }
 
-        // 刷新语音列表
+        // Refresh voices
         function refreshVoices() {
             voicesLoaded = false;
             voiceLoadAttempts = 0;
             refreshBtn.style.display = 'none';
             voiceStatus.textContent = 'Refreshing voices...';
-
-            // 取消当前的语音
             synth.cancel();
 
-            // 重新初始化
             setTimeout(() => {
                 const voices = synth.getVoices();
                 console.log('After refresh:', voices.length, 'voices');
@@ -244,16 +232,13 @@
             }, 100);
         }
 
-        // 发音函数 - 设置为英式发音
-        let isSpeaking = false;
+        // Speak word
         function speakWord() {
-            // 如果语音未加载，先尝试加载
+            console.log('speakWord called');
+
             if (!voicesLoaded) {
                 initializeVoices();
-                // 即使语音未完全加载，也尝试发音
-                setTimeout(() => {
-                    actuallySpeak();
-                }, 100);
+                setTimeout(() => actuallySpeak(), 100);
             } else {
                 actuallySpeak();
             }
@@ -267,21 +252,18 @@
 
             const utterance = new SpeechSynthesisUtterance(words[currentIndex]);
 
-            // 设置英式发音
             if (selectedVoice) {
                 utterance.voice = selectedVoice;
                 console.log('Using voice:', selectedVoice.name);
             } else {
-                // 如果没有选定语音，让系统自动选择
-                console.log('No voice selected, using system default');
                 utterance.lang = 'en-GB';
+                console.log('No voice selected, using system default');
             }
 
-            // 设置语音参数，使其更自然
-            utterance.lang = 'en-GB';  // 强制使用英式英语
-            utterance.rate = 0.95;     // 语速稍慢一点，更清晰
-            utterance.pitch = 1.0;     // 正常音调
-            utterance.volume = 1.0;    // 最大音量
+            utterance.lang = 'en-GB';
+            utterance.rate = 0.95;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
 
             utterance.onstart = () => {
                 isSpeaking = true;
@@ -295,21 +277,17 @@
             };
 
             utterance.onerror = (err) => {
-                console.error('Speech synthesis error:', err);
+                console.error('Speech error:', err);
                 isSpeaking = false;
 
-                // 如果出错，显示错误信息
                 if (err.error === 'not-allowed') {
-                    voiceStatus.textContent = '❌ Microphone/speech access denied';
-                } else if (err.error === 'canceled') {
-                    // 用户取消，不需要显示错误
-                } else {
-                    voiceStatus.textContent = `⚠️ Speech error: ${err.error}. Click Refresh voices.`;
+                    voiceStatus.textContent = '❌ Speech access denied';
+                } else if (err.error !== 'canceled') {
+                    voiceStatus.textContent = `⚠️ Error: ${err.error}. Click Refresh voices.`;
                     refreshBtn.style.display = 'block';
                 }
             };
 
-            // 开始发音
             try {
                 synth.speak(utterance);
             } catch (e) {
@@ -318,21 +296,21 @@
             }
         }
 
-        // 切换到下一个单词
+        // Next word
         function nextWord() {
             currentIndex++;
             wordSpoken = false;
 
             if (currentIndex < words.length) {
-                inputField.value = ''; // 清空输入框
-                feedback.textContent = ''; // 清空反馈
+                inputField.value = '';
+                feedback.textContent = '';
                 currentWordDisplay.textContent = 'Click the speaker to hear the word';
             } else {
                 endGame();
             }
         }
 
-        // 检查输入并显示反馈
+        // Check word
         function checkWord() {
             const userInput = inputField.value.trim().toLowerCase();
             if (userInput === words[currentIndex]) {
@@ -346,13 +324,22 @@
             }
         }
 
-        // 检查答案并前进到下一个单词
+        // Check and next
         function checkAndNextWord() {
             checkWord();
             setTimeout(nextWord, 1500);
         }
 
-        // 更新计时器显示
+        // End game
+        function endGame() {
+            inputField.disabled = true;
+            feedback.textContent = 'Game Over!';
+            feedback.style.color = 'blue';
+            scoreDisplay.textContent = `Your final score is: ${score} / ${words.length * 10}`;
+            nextBtn.disabled = true;
+        }
+
+        // Update timer
         function updateTimer() {
             const elapsed = Date.now() - startTime;
             const hours = Math.floor(elapsed / 3600000).toString().padStart(2, '0');
@@ -361,29 +348,10 @@
             timerDisplay.textContent = `🕒 ${hours}:${minutes}:${seconds}`;
         }
 
-        // 结束游戏并显示分数
-        function endGame() {
-            inputField.disabled = true;
-            feedback.textContent = 'Game Over!';
-            feedback.style.color = 'blue';
-            scoreDisplay.textContent = `Your final score is: ${score} / ${words.length * 10}`;
-            document.querySelector('.next-button')?.disabled = true;
-        }
-
-        // 监听键盘事件 - 按回车键提交答案
-        inputField.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                checkAndNextWord();
-            }
-        });
-
-        // 初始化语音系统
+        // Initialize voice system
         function initVoiceSystem() {
-            // 立即尝试加载语音
             initializeVoices();
 
-            // Chrome 需要等待 onvoiceschanged 事件
             if (speechSynthesis.onvoiceschanged !== undefined) {
                 speechSynthesis.onvoiceschanged = () => {
                     console.log('Voices changed event fired');
@@ -391,7 +359,6 @@
                 };
             }
 
-            // 多次尝试加载语音
             let attempts = 0;
             const maxAttempts = 10;
             const checkInterval = setInterval(() => {
@@ -406,24 +373,55 @@
             }, 500);
         }
 
-        // 页面加载完成后初始化
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initVoiceSystem);
-        } else {
-            initVoiceSystem();
+        // Set up event listeners
+        function setupEventListeners() {
+            console.log('Setting up event listeners...');
+
+            speakerBtn.addEventListener('click', speakWord);
+            nextBtn.addEventListener('click', checkAndNextWord);
+            refreshBtn.addEventListener('click', refreshVoices);
+
+            inputField.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    checkAndNextWord();
+                }
+            });
+
+            console.log('Event listeners set up successfully');
         }
 
-        // 初始化计时器
-        setInterval(updateTimer, 1000);
+        // Initialize everything
+        function init() {
+            console.log('Initializing game...');
 
-        // 调试：在控制台显示可用语音
-        setTimeout(() => {
-            const allVoices = synth.getVoices();
-            console.log('=== All Available Voices ===');
-            allVoices.forEach((v, i) => {
-                console.log(`${i + 1}. ${v.name} (${v.lang})${v.default ? ' [Default]' : ''}`);
-            });
-        }, 2000);
+            // Set up event listeners first
+            setupEventListeners();
+
+            // Initialize voice system
+            initVoiceSystem();
+
+            // Start timer
+            setInterval(updateTimer, 1000);
+
+            // Debug: show voices
+            setTimeout(() => {
+                const allVoices = synth.getVoices();
+                console.log('=== All Available Voices ===');
+                allVoices.forEach((v, i) => {
+                    console.log(`${i + 1}. ${v.name} (${v.lang})${v.default ? ' [Default]' : ''}`);
+                });
+            }, 2000);
+
+            console.log('Game initialized');
+        }
+
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
     </script>
 </body>
 </html>
